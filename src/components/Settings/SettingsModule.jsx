@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { getSupabaseConfig, saveSupabaseConfig, testSupabaseConnection } from "../../services/supabaseClient";
+import { getNeonConfig, saveNeonConfig, testNeonConnection } from "../../services/neonClient";
 import { syncNow } from "../../services/syncService";
 import { resetAndReseedDatabase, db } from "../../db/offlineDb";
 import {
@@ -16,8 +16,7 @@ import {
 } from "lucide-react";
 
 export function SettingsModule() {
-  const [url, setUrl] = useState("");
-  const [anonKey, setAnonKey] = useState("");
+  const [databaseUrl, setDatabaseUrl] = useState("");
   const [testResult, setTestResult] = useState(null);
   const [syncResult, setSyncResult] = useState(null);
   const [testing, setTesting] = useState(false);
@@ -31,9 +30,8 @@ export function SettingsModule() {
   });
 
   useEffect(() => {
-    const cfg = getSupabaseConfig();
-    setUrl(cfg.url);
-    setAnonKey(cfg.anonKey);
+    const cfg = getNeonConfig();
+    setDatabaseUrl(cfg.databaseUrl);
     loadStats();
   }, []);
 
@@ -47,15 +45,15 @@ export function SettingsModule() {
   };
 
   const handleSaveConfig = () => {
-    saveSupabaseConfig(url, anonKey);
-    alert("Konfigurasi Supabase berhasil disimpan di Browser LocalStorage!");
+    saveNeonConfig(databaseUrl);
+    alert("Konfigurasi Database Neon berhasil disimpan di Browser LocalStorage!");
   };
 
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
-    saveSupabaseConfig(url, anonKey);
-    const res = await testSupabaseConnection();
+    saveNeonConfig(databaseUrl);
+    const res = await testNeonConnection();
     setTesting(false);
     setTestResult(res);
   };
@@ -82,53 +80,43 @@ export function SettingsModule() {
       {/* Header */}
       <div>
         <h2 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
-          Pengaturan System &amp; Supabase Cloud
+          Pengaturan System &amp; Neon Postgres Cloud
         </h2>
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0 }}>
-          Konfigurasi Koneksi Database Cloud, Engine Sync Offline &amp; Data Reset
+          Konfigurasi Koneksi Serverless Database Cloud Neon, Engine Sync Offline &amp; Data Reset
         </p>
       </div>
 
-      {/* 1. Supabase Cloud Configuration Card */}
+      {/* 1. Neon Cloud Configuration Card */}
       <div className="glass-card" style={{ padding: "1.5rem" }}>
         <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: "0 0 1rem 0", color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Cloud size={20} /> Integration Supabase Cloud Database
+          <Cloud size={20} /> Integrasi Neon Postgres Cloud Database
         </h3>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div className="input-group">
             <label className="input-label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <Globe size={14} /> Supabase Project URL *
-            </label>
-            <input
-              type="text"
-              className="input-control"
-              placeholder="https://your-project-id.supabase.co"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </div>
-
-          <div className="input-group">
-            <label className="input-label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <Key size={14} /> Supabase Anon Public Key *
+              <Globe size={14} /> Neon Connection String (PostgreSQL URL) *
             </label>
             <input
               type="password"
               className="input-control"
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              value={anonKey}
-              onChange={(e) => setAnonKey(e.target.value)}
+              placeholder="postgresql://username:password@ep-xyz.neon.tech/neondb?sslmode=require"
+              value={databaseUrl}
+              onChange={(e) => setDatabaseUrl(e.target.value)}
             />
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+              Dapatkan Connection String dari Console Neon Anda (Project Settings / Dashboard Connection Details).
+            </span>
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.5rem" }}>
             <button className="btn btn-primary" onClick={handleSaveConfig}>
-              Simpan Kredensial
+              Simpan Connection String
             </button>
             <button className="btn btn-secondary" onClick={handleTestConnection} disabled={testing}>
               <RefreshCw size={14} className={testing ? "spin-icon" : ""} />
-              {testing ? "Menguji..." : "Uji Koneksi Cloud"}
+              {testing ? "Menguji..." : "Uji Koneksi Neon Cloud"}
             </button>
           </div>
 
@@ -182,7 +170,7 @@ export function SettingsModule() {
         <div style={{ display: "flex", gap: "1rem" }}>
           <button className="btn btn-emerald" onClick={handleManualSync} disabled={syncing}>
             <RefreshCw size={16} className={syncing ? "spin-icon" : ""} />
-            {syncing ? "Sinkronisasi..." : "Sinkronkan Sekarang ke Supabase"}
+            {syncing ? "Sinkronisasi..." : "Sinkronkan Sekarang ke Neon"}
           </button>
 
           <button className="btn btn-rose" onClick={handleResetData}>

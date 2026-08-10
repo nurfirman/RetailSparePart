@@ -1,8 +1,8 @@
 import { db } from "../db/offlineDb";
-import { getSupabaseClient } from "./supabaseClient";
+import { getNeonSql } from "./neonClient";
 
 /**
- * Queue a local mutation action for syncing to Supabase Cloud when online
+ * Queue a local mutation action for syncing to Neon Cloud when online
  * @param {'INSERT'|'UPDATE'|'DELETE'} action 
  * @param {string} table 
  * @param {object} payload 
@@ -23,25 +23,25 @@ export async function queueSyncItem(action, table, payload) {
 }
 
 /**
- * Check if app is online and Supabase is connected
+ * Check if app is online
  */
 export function isOnlineNetwork() {
   return navigator.onLine;
 }
 
 /**
- * Synchronize local pending items to Supabase Cloud
+ * Synchronize local pending items to Neon Postgres Cloud
  */
 export async function syncNow() {
   if (!navigator.onLine) {
     return { success: false, message: "Koneksi internet tidak tersedia (Offline)." };
   }
 
-  const supabase = getSupabaseClient();
-  if (!supabase) {
+  const sql = getNeonSql();
+  if (!sql) {
     return {
       success: false,
-      message: "Supabase belum terkonfigurasi. Data tersimpan di database lokal (IndexedDB).",
+      message: "Database Neon belum terkonfigurasi. Data tersimpan di database lokal (IndexedDB).",
     };
   }
 
@@ -49,33 +49,40 @@ export async function syncNow() {
     const pendingItems = await db.sync_queue.where("status").equals("PENDING").toArray();
 
     if (pendingItems.length === 0) {
-      // Also pull latest remote products if any
-      await pullRemoteUpdates(supabase);
+      await pullRemoteUpdates(sql);
       return { success: true, message: "Semua data sudah tersinkronisasi sempurna!", syncedCount: 0 };
     }
 
     let successCount = 0;
     for (const item of pendingItems) {
-      let resultError = null;
+      try {
+        if (item.action === "INSERT") {
+          const keys = Object.keys(item.payload);
+          const values = Object.values(item.payload);
+          const cols = keys.map((k) => `"${k}"`).join(", ");
+          const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+          
+          const queryStr = `INSERT INTO "${item.table}" (${cols}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
+          await sql(queryStr, values);
+        } else if (item.action === "UPDATE") {
+          const { id, ...updateData } = item.payload;
+          const keys = Object.keys(updateData);
+          const values = Object.values(updateData);
+          
+          if (keys.length > 0) {
+            const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+            const queryStr = `UPDATE "${item.table}" SET ${setClause} WHERE "id" = $${keys.length + 1}`;
+            await sql(queryStr, [...values, id]);
+          }
+        } else if (item.action === "DELETE") {
+          const queryStr = `DELETE FROM "${item.table}" WHERE "id" = $1`;
+          await sql(queryStr, [item.payload.id]);
+        }
 
-      if (item.action === "INSERT") {
-        // Strip non-column metadata if any
-        const { error } = await supabase.from(item.table).insert([item.payload]);
-        resultError = error;
-      } else if (item.action === "UPDATE") {
-        const { id, ...updateData } = item.payload;
-        const { error } = await supabase.from(item.table).update(updateData).eq("id", id);
-        resultError = error;
-      } else if (item.action === "DELETE") {
-        const { error } = await supabase.from(item.table).delete().eq("id", item.payload.id);
-        resultError = error;
-      }
-
-      if (!resultError) {
         await db.sync_queue.update(item.id, { status: "SYNCED" });
         successCount++;
-      } else {
-        console.warn(`Sync item #${item.id} error:`, resultError.message);
+      } catch (itemErr) {
+        console.warn(`Sync item #${item.id} error:`, itemErr.message);
       }
     }
 
@@ -83,11 +90,11 @@ export async function syncNow() {
     await db.sync_queue.where("status").equals("SYNCED").delete();
 
     // Pull changes back
-    await pullRemoteUpdates(supabase);
+    await pullRemoteUpdates(sql);
 
     return {
       success: true,
-      message: `Berhasil mengunggah ${successCount} transaksi/perubahan ke Supabase!`,
+      message: `Berhasil mengunggah ${successCount} transaksi/perubahan ke Neon Postgres!`,
       syncedCount: successCount,
     };
   } catch (err) {
@@ -97,26 +104,27 @@ export async function syncNow() {
 }
 
 /**
- * Pull latest products/categories/suppliers from Supabase to IndexedDB
+ * Pull latest products/categories/suppliers from Neon to IndexedDB
  */
-async function pullRemoteUpdates(supabase) {
+async function pullRemoteUpdates(sql) {
   try {
-    const { data: remoteProducts } = await supabase.from("products").select("*");
+    const remoteProducts = await sql`SELECT * FROM "products"`;
     if (remoteProducts && remoteProducts.length > 0) {
       await db.products.bulkPut(remoteProducts);
     }
 
-    const { data: remoteCategories } = await supabase.from("categories").select("*");
+    const remoteCategories = await sql`SELECT * FROM "categories"`;
     if (remoteCategories && remoteCategories.length > 0) {
       await db.categories.bulkPut(remoteCategories);
     }
 
-    const { data: remoteSuppliers } = await supabase.from("suppliers").select("*");
+    const remoteSuppliers = await sql`SELECT * FROM "suppliers"`;
     if (remoteSuppliers && remoteSuppliers.length > 0) {
       await db.suppliers.bulkPut(remoteSuppliers);
     }
   } catch (err) {
-    console.warn("Could not pull remote updates from Supabase:", err);
+    console.warn("Could not pull remote updates from Neon Postgres:", err.message);
   }
 }
+
 
