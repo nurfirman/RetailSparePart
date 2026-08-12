@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/offlineDb";
 import { queueSyncItem } from "../../services/syncService";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../UI/ToastProvider";
 import { POModal } from "./POModal";
 import {
   ArrowDownUp,
@@ -20,6 +21,7 @@ import {
 
 export function InventoryModule() {
   const { currentUser } = useAuth();
+  const toast = useToast();
 
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
   const suppliers = useLiveQuery(() => db.suppliers.toArray(), []) || [];
@@ -55,7 +57,7 @@ export function InventoryModule() {
   const handleInboundSubmit = async (e) => {
     e.preventDefault();
     if (!inboundForm.product_id || inboundForm.quantity <= 0) {
-      alert("Pilih produk dan masukkan kuantitas barang masuk!");
+      toast.warning("Pilih produk dan masukkan kuantitas barang masuk!");
       return;
     }
 
@@ -84,7 +86,7 @@ export function InventoryModule() {
       await db.stock_movements.add(smData);
       await queueSyncItem("INSERT", "stock_movements", smData);
 
-      alert(`Berhasil menambah stok +${inboundForm.quantity} unit untuk ${prod.name}!`);
+      toast.success(`Berhasil menambah stok +${inboundForm.quantity} unit untuk ${prod.name}!`);
       setInboundForm({
         product_id: "",
         type: "IN_MANUAL",
@@ -94,7 +96,7 @@ export function InventoryModule() {
         notes: "",
       });
     } catch (err) {
-      alert(`Gagal memproses barang masuk: ${err.message}`);
+      toast.error(`Gagal memproses barang masuk: ${err.message}`);
     }
   };
 
@@ -102,7 +104,7 @@ export function InventoryModule() {
   const handleOutboundSubmit = async (e) => {
     e.preventDefault();
     if (!outboundForm.product_id || outboundForm.quantity <= 0) {
-      alert("Pilih produk dan kuantitas barang keluar!");
+      toast.warning("Pilih produk dan kuantitas barang keluar!");
       return;
     }
 
@@ -110,7 +112,7 @@ export function InventoryModule() {
     if (!prod) return;
 
     if (prod.stock_quantity < Number(outboundForm.quantity)) {
-      alert(`Stok tersedia (${prod.stock_quantity}) kurang dari pengeluaran (${outboundForm.quantity})!`);
+      toast.error(`Stok tersedia (${prod.stock_quantity}) kurang dari pengeluaran (${outboundForm.quantity})!`);
       return;
     }
 
@@ -135,7 +137,7 @@ export function InventoryModule() {
       await db.stock_movements.add(smData);
       await queueSyncItem("INSERT", "stock_movements", smData);
 
-      alert(`Pencatatan barang keluar berhasil disimpan! Stok berkurang -${outboundForm.quantity} unit.`);
+      toast.success(`Pencatatan barang keluar berhasil disimpan! Stok berkurang -${outboundForm.quantity} unit.`);
       setOutboundForm({
         product_id: "",
         type: "OUT_DAMAGED",
@@ -144,7 +146,7 @@ export function InventoryModule() {
         notes: "",
       });
     } catch (err) {
-      alert(`Gagal memproses pengeluaran stok: ${err.message}`);
+      toast.error(`Gagal memproses pengeluaran stok: ${err.message}`);
     }
   };
 
@@ -154,7 +156,7 @@ export function InventoryModule() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       {/* Header & Sub-tab Selector */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
         <div>
           <h2 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
             Manajemen Inventaris (Inbound &amp; Outbound)
@@ -164,7 +166,7 @@ export function InventoryModule() {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.5rem", background: "var(--bg-card)", padding: "0.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", gap: "0.5rem", background: "var(--bg-card)", padding: "0.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", flexWrap: "wrap" }}>
           <button
             className={`btn btn-sm ${activeSubTab === "inbound" ? "btn-emerald" : "btn-outline"}`}
             onClick={() => setActiveSubTab("inbound")}
@@ -188,7 +190,7 @@ export function InventoryModule() {
 
       {/* SUB-TAB 1: INBOUND STOCK (BARANG MASUK & PO) */}
       {activeSubTab === "inbound" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }}>
           {/* Direct Purchase / Consignment Form */}
           <div className="glass-card" style={{ padding: "1.5rem" }}>
             <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: "0 0 1rem 0", color: "var(--emerald)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -449,68 +451,70 @@ export function InventoryModule() {
             <span className="badge badge-blue">{sortedMovements.length} Log Records</span>
           </div>
 
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Waktu &amp; Tanggal</th>
-                <th>Sparepart / SKU</th>
-                <th>Tipe Mutasi</th>
-                <th>Kuantitas</th>
-                <th>No. Referensi</th>
-                <th>Catatan</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedMovements.length === 0 ? (
+          <div className="table-responsive">
+            <table className="custom-table">
+              <thead>
                 <tr>
-                  <td colSpan="6" style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
-                    Belum ada riwayat mutasi stok.
-                  </td>
+                  <th>Waktu &amp; Tanggal</th>
+                  <th>Sparepart / SKU</th>
+                  <th>Tipe Mutasi</th>
+                  <th>Kuantitas</th>
+                  <th>No. Referensi</th>
+                  <th>Catatan</th>
                 </tr>
-              ) : (
-                sortedMovements.map((sm) => {
-                  const p = products.find((prod) => prod.id === sm.product_id);
-                  const isIncoming = sm.type.startsWith("IN_");
+              </thead>
+              <tbody>
+                {sortedMovements.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
+                      Belum ada riwayat mutasi stok.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedMovements.map((sm) => {
+                    const p = products.find((prod) => prod.id === sm.product_id);
+                    const isIncoming = sm.type.startsWith("IN_");
 
-                  let badgeColor = "badge-blue";
-                  if (sm.type === "IN_MANUAL" || sm.type === "IN_PO") badgeColor = "badge-emerald";
-                  else if (sm.type === "IN_CONSIGNMENT") badgeColor = "badge-purple";
-                  else if (sm.type === "OUT_POS") badgeColor = "badge-blue";
-                  else if (sm.type === "OUT_DAMAGED") badgeColor = "badge-rose";
-                  else if (sm.type === "OUT_GIFT") badgeColor = "badge-amber";
+                    let badgeColor = "badge-blue";
+                    if (sm.type === "IN_MANUAL" || sm.type === "IN_PO") badgeColor = "badge-emerald";
+                    else if (sm.type === "IN_CONSIGNMENT") badgeColor = "badge-purple";
+                    else if (sm.type === "OUT_POS") badgeColor = "badge-blue";
+                    else if (sm.type === "OUT_DAMAGED") badgeColor = "badge-rose";
+                    else if (sm.type === "OUT_GIFT") badgeColor = "badge-amber";
 
-                  return (
-                    <tr key={sm.id}>
-                      <td style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                        {new Date(sm.created_at).toLocaleString("id-ID")}
-                      </td>
+                    return (
+                      <tr key={sm.id}>
+                        <td style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                          {new Date(sm.created_at).toLocaleString("id-ID")}
+                        </td>
 
-                      <td>
-                        <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{p?.name || "Sparepart"}</div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>SKU: {p?.sku_number}</div>
-                      </td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{p?.name || "Sparepart"}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>SKU: {p?.sku_number}</div>
+                        </td>
 
-                      <td>
-                        <span className={`badge ${badgeColor}`}>{sm.type}</span>
-                      </td>
+                        <td>
+                          <span className={`badge ${badgeColor}`}>{sm.type}</span>
+                        </td>
 
-                      <td style={{ fontWeight: 800, color: isIncoming ? "var(--emerald)" : "var(--rose)" }}>
-                        {isIncoming ? `+${sm.quantity}` : `-${sm.quantity}`}
-                      </td>
+                        <td style={{ fontWeight: 800, color: isIncoming ? "var(--emerald)" : "var(--rose)" }}>
+                          {isIncoming ? `+${sm.quantity}` : `-${sm.quantity}`}
+                        </td>
 
-                      <td>
-                        <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>{sm.reference_number || "-"}</span>
-                      </td>
+                        <td>
+                          <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>{sm.reference_number || "-"}</span>
+                        </td>
 
-                      <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                        {sm.notes || "-"}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                          {sm.notes || "-"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

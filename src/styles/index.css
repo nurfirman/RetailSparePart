@@ -348,6 +348,105 @@ body {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* Responsive Table Container Wrapper */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-sm);
+}
+
+.table-responsive::-webkit-scrollbar {
+  height: 6px;
+}
+
+/* Responsive Grid System Helpers */
+.grid-kpi {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .grid-kpi {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-kpi {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* POS Module Responsive Layout */
+.pos-layout-container {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 1.25rem;
+  height: calc(100vh - 96px);
+}
+
+.pos-product-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  padding-right: 0.25rem;
+}
+
+@media (max-width: 1024px) {
+  .pos-layout-container {
+    grid-template-columns: 1fr 310px !important;
+    gap: 0.875rem !important;
+    height: calc(100vh - 84px) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .pos-layout-container {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+}
+
+/* Media Queries for Tablet & Mobile Responsiveness */
+@media (max-width: 1024px) {
+  .content-body {
+    padding: 1rem;
+  }
+
+  .modal-content {
+    max-width: 95vw !important;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .content-body {
+    padding: 0.75rem;
+  }
+
+  .btn {
+    min-height: 40px; /* Touch friendly tap target */
+  }
+
+  .btn-sm {
+    min-height: 36px;
+  }
+
+  .navbar-container {
+    padding: 0 0.75rem !important;
+  }
+
+  .hide-on-tablet {
+    display: none !important;
+  }
+}
+
 /* Thermal Printable Receipt Styles */
 @media print {
   body * {

@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/offlineDb";
 import { queueSyncItem } from "../../services/syncService";
+import { useToast } from "../UI/ToastProvider";
+import { useConfirmDialog } from "../UI/ConfirmDialog";
 import { ProductModal } from "./ProductModal";
 import {
   Package,
@@ -18,6 +20,8 @@ import {
 } from "lucide-react";
 
 export function ProductMaster() {
+  const toast = useToast();
+  const [ConfirmDialogEl, showConfirm] = useConfirmDialog();
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
   const categories = useLiveQuery(() => db.categories.toArray(), []) || [];
   const suppliers = useLiveQuery(() => db.suppliers.toArray(), []) || [];
@@ -62,9 +66,16 @@ export function ProductMaster() {
   };
 
   const handleDelete = async (id, name) => {
-    if (confirm(`Apakah Anda yakin ingin menghapus sparepart "${name}"?`)) {
+    const confirmed = await showConfirm({
+      title: "Hapus Sparepart",
+      message: `Apakah Anda yakin ingin menghapus sparepart "${name}"?`,
+      confirmLabel: "Hapus Produk",
+      variant: "danger",
+    });
+    if (confirmed) {
       await db.products.delete(id);
       await queueSyncItem("DELETE", "products", { id });
+      toast.success(`Sparepart "${name}" berhasil dihapus.`);
     }
   };
 
@@ -87,51 +98,51 @@ export function ProductMaster() {
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem" }}>
+      <div className="grid-kpi">
         <div className="glass-card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ background: "var(--primary-light)", padding: "0.75rem", borderRadius: "var(--radius-md)" }}>
+          <div style={{ background: "var(--primary-light)", padding: "0.75rem", borderRadius: "var(--radius-md)", flexShrink: 0 }}>
             <Package color="var(--primary)" size={24} />
           </div>
           <div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>TOTAL SKU</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{totalSku} Item</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 800 }}>{totalSku} Item</div>
           </div>
         </div>
 
         <div className="glass-card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ background: "var(--emerald-light)", padding: "0.75rem", borderRadius: "var(--radius-md)" }}>
+          <div style={{ background: "var(--emerald-light)", padding: "0.75rem", borderRadius: "var(--radius-md)", flexShrink: 0 }}>
             <Boxes color="var(--emerald)" size={24} />
           </div>
           <div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>TOTAL FISIK STOK</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--emerald)" }}>{totalStockItems} Pcs</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--emerald)" }}>{totalStockItems} Pcs</div>
           </div>
         </div>
 
         <div className="glass-card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ background: "var(--rose-light)", padding: "0.75rem", borderRadius: "var(--radius-md)" }}>
+          <div style={{ background: "var(--rose-light)", padding: "0.75rem", borderRadius: "var(--radius-md)", flexShrink: 0 }}>
             <AlertTriangle color="var(--rose)" size={24} />
           </div>
           <div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>STOK KRITIS / MENIPIS</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--rose)" }}>{lowStockCount} SKU</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--rose)" }}>{lowStockCount} SKU</div>
           </div>
         </div>
 
         <div className="glass-card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ background: "var(--purple-light)", padding: "0.75rem", borderRadius: "var(--radius-md)" }}>
+          <div style={{ background: "var(--purple-light)", padding: "0.75rem", borderRadius: "var(--radius-md)", flexShrink: 0 }}>
             <Layers color="var(--purple)" size={24} />
           </div>
           <div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>BARANG KONSINYASI</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--purple)" }}>{consignmentCount} SKU</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--purple)" }}>{consignmentCount} SKU</div>
           </div>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="glass-card" style={{ padding: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: 1 }}>
+      <div className="glass-card" style={{ padding: "1rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 240px" }}>
           <Search size={18} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
           <input
             type="text"
@@ -143,7 +154,7 @@ export function ProductMaster() {
           />
         </div>
 
-        <div style={{ width: "200px" }}>
+        <div style={{ width: "180px", flexShrink: 0 }}>
           <select
             className="select-control"
             value={selectedCategory}
@@ -161,6 +172,7 @@ export function ProductMaster() {
         <button
           className={`btn ${onlyLowStock ? "btn-rose" : "btn-outline"}`}
           onClick={() => setOnlyLowStock(!onlyLowStock)}
+          style={{ flexShrink: 0 }}
         >
           <AlertTriangle size={16} /> Stok Menipis ({lowStockCount})
         </button>
@@ -168,7 +180,8 @@ export function ProductMaster() {
 
       {/* Products Table */}
       <div className="glass-card" style={{ overflow: "hidden" }}>
-        <table className="custom-table">
+        <div className="table-responsive">
+          <table className="custom-table">
           <thead>
             <tr>
               <th>SKU / OEM Part</th>
@@ -271,6 +284,7 @@ export function ProductMaster() {
           </tbody>
         </table>
       </div>
+    </div>
 
       {/* Product Modal */}
       <ProductModal
@@ -278,6 +292,8 @@ export function ProductMaster() {
         onClose={() => setIsModalOpen(false)}
         productToEdit={selectedProduct}
       />
+
+      {ConfirmDialogEl}
     </div>
   );
 }

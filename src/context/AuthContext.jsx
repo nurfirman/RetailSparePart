@@ -3,6 +3,13 @@ import { db } from "../db/offlineDb";
 
 const AuthContext = createContext();
 
+// Simple password map for demo users (in production, use proper hashing)
+const DEMO_PASSWORDS = {
+  "admin@sparepart.com": "admin123",
+  "gudang@sparepart.com": "gudang123",
+  "kasir@sparepart.com": "kasir123",
+};
+
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
@@ -16,10 +23,8 @@ export function AuthProvider({ children }) {
       const found = users.find((u) => u.id === savedUserId);
       if (found) {
         setCurrentUser(found);
-      } else if (users.length > 0) {
-        setCurrentUser(users[0]); // Default Owner/Admin
-        localStorage.setItem("ACTIVE_USER_ID", users[0].id);
       }
+      // Don't auto-login to first user anymore — require explicit login
     } catch (err) {
       console.error("Auth context error:", err);
     } finally {
@@ -40,15 +45,23 @@ export function AuthProvider({ children }) {
   };
 
   const loginWithEmail = async (email, password) => {
-    // Standard simulation or match against users table
     const users = await db.users.toArray();
     const found = users.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
-    if (found) {
-      setCurrentUser(found);
-      localStorage.setItem("ACTIVE_USER_ID", found.id);
-      return { success: true, user: found };
+    
+    if (!found) {
+      return { success: false, message: "Email tidak ditemukan dalam sistem." };
     }
-    return { success: false, message: "Email tidak ditemukan atau kata sandi salah." };
+
+    // Validate password against known demo passwords
+    const expectedPassword = DEMO_PASSWORDS[found.email.toLowerCase()];
+    if (!expectedPassword || password !== expectedPassword) {
+      return { success: false, message: "Kata sandi salah. Silakan coba lagi." };
+    }
+
+    setCurrentUser(found);
+    localStorage.setItem("ACTIVE_USER_ID", found.id);
+    setAllUsers(users);
+    return { success: true, user: found };
   };
 
   const logout = () => {

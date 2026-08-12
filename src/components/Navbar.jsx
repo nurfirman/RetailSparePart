@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "./UI/ToastProvider";
 import { isOnlineNetwork, syncNow } from "../services/syncService";
+import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db/offlineDb";
 import {
   Wrench,
@@ -10,49 +12,77 @@ import {
   UserCheck,
   ChevronDown,
   Database,
-  CheckCircle,
-  AlertCircle,
+  LogIn,
+  LogOut,
+  Clock,
 } from "lucide-react";
 
-export function Navbar() {
-  const { currentUser, allUsers, switchUser } = useAuth();
+export function Navbar({ onOpenLogin }) {
+  const { currentUser, allUsers, switchUser, logout } = useAuth();
+  const toast = useToast();
   const [online, setOnline] = useState(navigator.onLine);
-  const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Monitor network status & sync queue size
+  // Use Dexie LiveQuery instead of polling interval for pending count
+  const pendingCount = useLiveQuery(
+    () => db.sync_queue.where("status").equals("PENDING").count(),
+    [],
+    0
+  );
+
+  // Monitor network status
   useEffect(() => {
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
+    const handleOnline = () => { setOnline(true); toast.info("Koneksi internet tersambung kembali."); };
+    const handleOffline = () => { setOnline(false); toast.warning("Koneksi internet terputus. Mode offline aktif."); };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    const interval = setInterval(async () => {
-      try {
-        const count = await db.sync_queue.where("status").equals("PENDING").count();
-        setPendingCount(count);
-      } catch (err) {
-        // silent
-      }
-    }, 2000);
-
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      clearInterval(interval);
     };
+  }, [toast]);
+
+  // Live clock (inspired by Color Admin POS header)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSyncClick = async () => {
     setSyncing(true);
     const res = await syncNow();
     setSyncing(false);
-    setToastMessage(res.message);
-    setTimeout(() => setToastMessage(null), 4000);
+    if (res.success) {
+      toast.success(res.message);
+    } else {
+      toast.error(res.message);
+    }
   };
+
+  const handleLogout = () => {
+    logout();
+    setUserDropdownOpen(false);
+    toast.info("Anda telah keluar dari sistem.");
+  };
+
+  const timeStr = currentTime.toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  const dateStr = currentTime.toLocaleDateString("id-ID", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 
   return (
     <header className="navbar-container" style={{
@@ -84,27 +114,36 @@ export function Navbar() {
           <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
             OtoSparePart <span style={{ color: 'var(--primary)', fontWeight: 500, fontSize: '0.85rem' }}>POS &amp; Inventory</span>
           </h1>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Auto &amp; Moto Parts Enterprise</span>
+          <span className="hide-on-tablet" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Auto &amp; Moto Parts Enterprise</span>
         </div>
       </div>
 
-      {/* Network Status & Quick User Switching */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      {/* Center: Live Clock (Color Admin POS style) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+        <Clock size={14} color="var(--primary)" />
+        <span style={{ fontSize: '0.95rem', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>
+          {timeStr}
+        </span>
+        <span className="hide-on-tablet" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{dateStr}</span>
+      </div>
+
+      {/* Right: Network Status, Sync, User */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {/* Network & Sync Status Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           {online ? (
             <span className="badge badge-emerald">
-              <Wifi size={13} /> Cloud Online (Supabase)
+              <Wifi size={13} /> <span className="hide-on-tablet">Neon Cloud</span>
             </span>
           ) : (
             <span className="badge badge-amber">
-              <WifiOff size={13} /> Local Mode (Offline)
+              <WifiOff size={13} /> <span className="hide-on-tablet">Offline Mode</span>
             </span>
           )}
 
           {pendingCount > 0 && (
             <span className="badge badge-rose">
-              <Database size={12} /> {pendingCount} sync pending
+              <Database size={12} /> {pendingCount} pending
             </span>
           )}
 
@@ -112,15 +151,15 @@ export function Navbar() {
             onClick={handleSyncClick}
             disabled={syncing}
             className="btn btn-secondary btn-sm"
-            title="Sinkronkan data lokal dengan database Cloud Supabase"
+            title="Sinkronkan data lokal dengan Neon Postgres Cloud"
           >
             <RefreshCw size={13} className={syncing ? "spin-icon" : ""} />
-            {syncing ? "Singkron..." : "Singkronkan"}
+            {syncing ? "Sync..." : "Sync"}
           </button>
         </div>
 
         {/* User Role & Switcher */}
-        {currentUser && (
+        {currentUser ? (
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => setUserDropdownOpen(!userDropdownOpen)}
@@ -140,7 +179,7 @@ export function Navbar() {
                 position: 'absolute',
                 top: '110%',
                 right: 0,
-                width: '240px',
+                width: '260px',
                 background: 'var(--bg-card)',
                 border: '1px solid var(--border)',
                 borderRadius: 'var(--radius-md)',
@@ -157,6 +196,7 @@ export function Navbar() {
                     onClick={() => {
                       switchUser(u.id);
                       setUserDropdownOpen(false);
+                      toast.success(`Berganti ke ${u.name}`);
                     }}
                     style={{
                       width: '100%',
@@ -177,34 +217,39 @@ export function Navbar() {
                     <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{u.role}</span>
                   </button>
                 ))}
+
+                {/* Logout button */}
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem', paddingTop: '0.5rem' }}>
+                  <button
+                    onClick={handleLogout}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--rose)',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <LogOut size={14} /> Keluar (Logout)
+                  </button>
+                </div>
               </div>
             )}
           </div>
+        ) : (
+          <button className="btn btn-primary btn-sm" onClick={onOpenLogin}>
+            <LogIn size={14} /> Masuk
+          </button>
         )}
       </div>
-
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '20px',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--primary)',
-          color: 'var(--text-primary)',
-          padding: '0.875rem 1.25rem',
-          borderRadius: 'var(--radius-md)',
-          boxShadow: 'var(--shadow-lg)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          zIndex: 10000,
-          animation: 'fadeIn 0.2s ease-out'
-        }}>
-          <CheckCircle size={18} color="var(--emerald)" />
-          <span style={{ fontSize: '0.875rem' }}>{toastMessage}</span>
-        </div>
-      )}
     </header>
   );
 }

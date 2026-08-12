@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { getNeonConfig, saveNeonConfig, testNeonConnection } from "../../services/neonClient";
 import { syncNow } from "../../services/syncService";
 import { resetAndReseedDatabase, db } from "../../db/offlineDb";
+import { useToast } from "../UI/ToastProvider";
+import { useConfirmDialog } from "../UI/ConfirmDialog";
 import {
   Settings,
   Cloud,
@@ -16,6 +18,8 @@ import {
 } from "lucide-react";
 
 export function SettingsModule() {
+  const toast = useToast();
+  const [ConfirmDialogEl, showConfirm] = useConfirmDialog();
   const [databaseUrl, setDatabaseUrl] = useState("");
   const [testResult, setTestResult] = useState(null);
   const [syncResult, setSyncResult] = useState(null);
@@ -46,7 +50,7 @@ export function SettingsModule() {
 
   const handleSaveConfig = () => {
     saveNeonConfig(databaseUrl);
-    alert("Konfigurasi Database Neon berhasil disimpan di Browser LocalStorage!");
+    toast.success("Konfigurasi Database Neon berhasil disimpan!");
   };
 
   const handleTestConnection = async () => {
@@ -56,6 +60,11 @@ export function SettingsModule() {
     const res = await testNeonConnection();
     setTesting(false);
     setTestResult(res);
+    if (res.success) {
+      toast.success("Koneksi Neon Postgres Cloud BERHASIL!");
+    } else {
+      toast.error(res.message);
+    }
   };
 
   const handleManualSync = async () => {
@@ -65,12 +74,23 @@ export function SettingsModule() {
     setSyncing(false);
     setSyncResult(res);
     loadStats();
+    if (res.success) {
+      toast.success(res.message);
+    } else {
+      toast.error(res.message);
+    }
   };
 
   const handleResetData = async () => {
-    if (confirm("Apakah Anda yakin ingin mereset dan mengisi ulang data dummy awal ke IndexedDB lokal? Transaksi baru akan terhapus.")) {
+    const confirmed = await showConfirm({
+      title: "Reset Database Lokal",
+      message: "Apakah Anda yakin ingin mereset dan mengisi ulang data dummy awal ke IndexedDB lokal? Transaksi baru akan terhapus.",
+      confirmLabel: "Reset Data",
+      variant: "danger",
+    });
+    if (confirmed) {
       await resetAndReseedDatabase();
-      alert("Database lokal berhasil direset dan diisi data dummy baru!");
+      toast.success("Database lokal berhasil direset dan diisi data dummy baru!");
       loadStats();
     }
   };
@@ -101,12 +121,14 @@ export function SettingsModule() {
             <input
               type="password"
               className="input-control"
-              placeholder="postgresql://username:password@ep-xyz.neon.tech/neondb?sslmode=require"
+              placeholder={databaseUrl ? "••••••••••••••••••••••••••••••••" : "postgresql://username:password@ep-xyz.neon.tech/neondb?sslmode=require"}
               value={databaseUrl}
               onChange={(e) => setDatabaseUrl(e.target.value)}
             />
             <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              Dapatkan Connection String dari Console Neon Anda (Project Settings / Dashboard Connection Details).
+              {databaseUrl
+                ? "✓ Connection String terdeteksi otomatis dari file .env (atau LocalStorage)."
+                : "Dapatkan Connection String dari Console Neon Anda (Project Settings / Dashboard Connection Details)."}
             </span>
           </div>
 
@@ -197,6 +219,8 @@ export function SettingsModule() {
           </div>
         )}
       </div>
+
+      {ConfirmDialogEl}
     </div>
   );
 }

@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/offlineDb";
 import { useAuth } from "../../context/AuthContext";
 import { queueSyncItem } from "../../services/syncService";
+import { useToast } from "../UI/ToastProvider";
+import { useConfirmDialog } from "../UI/ConfirmDialog";
 import { HoldCartModal } from "./HoldCartModal";
 import { ReceiptModal } from "./ReceiptModal";
+import { TransactionHistoryModal } from "./TransactionHistoryModal";
 import {
   Search,
   Filter,
@@ -23,10 +26,13 @@ import {
   Tag,
   CheckCircle,
   AlertTriangle,
+  History,
 } from "lucide-react";
 
 export function POSModule() {
   const { currentUser } = useAuth();
+  const toast = useToast();
+  const [ConfirmDialogEl, showConfirm] = useConfirmDialog();
 
   // Fetch Live Data from Dexie IndexedDB
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
@@ -46,6 +52,7 @@ export function POSModule() {
 
   // Modals & Hold Carts State
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [currentTransaction, setCurrentTransaction] = useState(null);
   const [heldCount, setHeldCount] = useState(0);
@@ -59,16 +66,20 @@ export function POSModule() {
     checkHeld();
   }, [isHoldModalOpen]);
 
-  // Unique list of Vehicle Compatibilities for Filter Dropdown
-  const vehicleOptions = [
-    "Semua Kendaraan",
-    "Honda Vario 125/150",
-    "Honda Beat FI",
-    "Yamaha NMAX 155",
-    "Toyota Avanza",
-    "Daihatsu Terios",
-    "Honda PCX 160",
-  ];
+  // Dynamic vehicle options extracted from product data
+  const vehicleOptions = useMemo(() => {
+    const allVehicles = new Set();
+    products.forEach((p) => {
+      if (p.vehicle_compatibility) {
+        // Split by comma to get individual vehicle entries
+        p.vehicle_compatibility.split(",").forEach((v) => {
+          const trimmed = v.trim();
+          if (trimmed) allVehicles.add(trimmed);
+        });
+      }
+    });
+    return ["Semua Kendaraan", ...Array.from(allVehicles).sort()];
+  }, [products]);
 
   // Filtered Product List
   const filteredProducts = products.filter((p) => {
@@ -91,13 +102,16 @@ export function POSModule() {
 
   // Cart Actions
   const addToCart = (product) => {
-    if (product.stock_quantity <= 0) return;
+    if (product.stock_quantity <= 0) {
+      toast.warning(`${product.name} stok habis!`);
+      return;
+    }
 
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
       if (existing) {
         if (existing.quantity >= product.stock_quantity) {
-          alert(`Stok produk ${product.name} terbatas (${product.stock_quantity} unit)`);
+          toast.warning(`Stok produk ${product.name} terbatas (${product.stock_quantity} unit)`);
           return prev;
         }
         return prev.map((item) =>
@@ -113,6 +127,7 @@ export function POSModule() {
         },
       ];
     });
+    toast.success(`${product.name} ditambahkan ke keranjang`);
   };
 
   const updateQuantity = (productId, delta) => {
@@ -123,7 +138,7 @@ export function POSModule() {
             const newQty = item.quantity + delta;
             const targetProd = products.find((p) => p.id === productId);
             if (targetProd && newQty > targetProd.stock_quantity) {
-              alert(`Stok maksimal tersedia: ${targetProd.stock_quantity}`);
+              toast.warning(`Stok maksimal tersedia: ${targetProd.stock_quantity}`);
               return item;
             }
             return newQty > 0 ? { ...item, quantity: newQty } : null;
@@ -168,8 +183,22 @@ export function POSModule() {
     const target = products.find((p) => p.barcode === "899100100201") || products[0];
     if (target) {
       addToCart(target);
+    } else {
+      toast.warning("Produk dengan barcode tersebut tidak ditemukan.");
     }
   };
+
+  // F4 Keyboard Shortcut for Checkout
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "F4") {
+        e.preventDefault();
+        handleCheckout();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [cart, paymentMethod, amountPaid, finalTotal]);
 
   // Hold Cart Action
   const handleHoldCart = async () => {
@@ -182,7 +211,7 @@ export function POSModule() {
     clearCart();
     const count = await db.held_carts.count();
     setHeldCount(count);
-    alert("Transaksi berhasil disimpan di antrean hold.");
+    toast.info("Transaksi disimpan di antrean hold.");
   };
 
   const handleResumeCart = (resumedItems, resumedCustomer) => {
@@ -193,20 +222,32 @@ export function POSModule() {
   // Process Checkout
   const handleCheckout = async () => {
     if (cart.length === 0) {
-      alert("Keranjang belanja masih kosong!");
+      toast.warning("Keranjang belanja masih kosong!");
       return;
     }
 
     if (paymentMethod === "CASH" && numPaid < finalTotal) {
-      alert("Jumlah pembayaran tunai kurang dari total tagihan!");
+      toast.error("Jumlah pembayaran tunai kurang dari total tagihan!");
       return;
     }
 
-    const now = new Date();
-    const invoiceNumber = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.floor(100 + Math.random() * 900)}`;
+    // Confirmation dialog before checkout
+    const confirmed = await showConfirm({
+      title: "Konfirmasi Pembayaran",
+      message: `Proses pembayaran Rp ${finalTotal.toLocaleString("id-ID")} via ${paymentMethod} untuk ${customerName}?`,
+      confirmLabel: "Bayar Sekarang",
+      variant: "info",
+    });
+    if (!confirmed) return;
 
+    const now = new Date();
+    // UUID-based invoice to prevent collision (was 3-digit random)
+    const uid = crypto.randomUUID ? crypto.randomUUID().slice(0, 8).toUpperCase() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+    const invoiceNumber = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${uid}`;
+
+    const transactionId = `trx-${Date.now()}-${uid}`;
     const transactionData = {
-      id: `trx-${Date.now()}`,
+      id: transactionId,
       invoice_number: invoiceNumber,
       user_id: currentUser?.id || "usr-003",
       total_amount: finalTotal,
@@ -219,8 +260,8 @@ export function POSModule() {
       change_amount: changeAmount,
       created_at: now.toISOString(),
       items: cart.map((item) => ({
-        id: `titem-${Date.now()}-${Math.random()}`,
-        transaction_id: `trx-${Date.now()}`,
+        id: `titem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        transaction_id: transactionId,
         product_id: item.id,
         name: item.name,
         oem_number: item.oem_number,
@@ -247,13 +288,15 @@ export function POSModule() {
 
       // 2. Save line items & Deduct Product Stock
       for (const item of cart) {
+        const itemId = `titem-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         // Line item sync queue
         await queueSyncItem("INSERT", "transaction_items", {
+          id: itemId,
           transaction_id: transactionData.id,
           product_id: item.id,
           quantity: item.quantity,
           unit_price: item.selling_price,
-          subtotal: item.selling_price * item.quantity - item.itemDiscount,
+          subtotal: item.selling_price * item.quantity - (item.itemDiscount || 0),
         });
 
         // Deduct stock in IndexedDB
@@ -285,18 +328,18 @@ export function POSModule() {
       clearCart();
     } catch (err) {
       console.error("Checkout error:", err);
-      alert(`Gagal memproses transaksi: ${err.message}`);
+      toast.error(`Gagal memproses transaksi: ${err.message}`);
     }
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", gap: "1.5rem", height: "calc(100vh - 96px)" }}>
+    <div className="pos-layout-container">
       {/* LEFT COLUMN: CATALOG SEARCH & PRODUCT GRID */}
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem", overflow: "hidden" }}>
         {/* Search & Filter Controls Bar */}
         <div className="glass-card" style={{ padding: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <div style={{ display: "flex", gap: "0.75rem" }}>
-            <div style={{ position: "relative", flex: 1 }}>
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+            <div style={{ position: "relative", flex: "1 1 220px" }}>
               <Search size={18} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
               <input
                 type="text"
@@ -309,7 +352,7 @@ export function POSModule() {
             </div>
 
             {/* Vehicle Compatibility Filter */}
-            <div style={{ width: "200px" }}>
+            <div style={{ flex: "0 0 160px", width: "160px" }}>
               <select
                 className="select-control"
                 value={selectedVehicle}
@@ -335,12 +378,12 @@ export function POSModule() {
           </div>
 
           {/* Category Pills */}
-          <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.25rem" }}>
+          <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.25rem", webkitOverflowScrolling: "touch" }}>
             <button
               className={`btn btn-sm ${selectedCategory === "all" ? "btn-primary" : "btn-outline"}`}
               onClick={() => setSelectedCategory("all")}
             >
-              Semua Kategori ({products.length})
+              Semua ({products.length})
             </button>
             {categories.map((cat) => {
               const catCount = products.filter((p) => p.category_id === cat.id).length;
@@ -358,7 +401,7 @@ export function POSModule() {
         </div>
 
         {/* Product Cards Grid */}
-        <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "1rem", paddingRight: "0.25rem" }}>
+        <div className="pos-product-grid">
           {filteredProducts.length === 0 ? (
             <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
               Tidak ada sparepart yang sesuai pencarian / filter.
@@ -458,7 +501,14 @@ export function POSModule() {
             <span className="badge badge-blue">{cart.reduce((s, i) => s + i.quantity, 0)} Items</span>
           </div>
 
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <button
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="btn btn-secondary btn-sm"
+              title="Buka riwayat & panggil transaksi terdahulu"
+            >
+              <History size={14} /> Riwayat
+            </button>
             <button
               onClick={() => setIsHoldModalOpen(true)}
               className="btn btn-outline btn-sm"
@@ -679,6 +729,21 @@ export function POSModule() {
         onClose={() => setIsHoldModalOpen(false)}
         onResumeCart={handleResumeCart}
       />
+
+      <TransactionHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        onViewReceipt={(tx) => {
+          setCurrentTransaction(tx);
+          setIsReceiptModalOpen(true);
+        }}
+        onRecallToCart={(items, customer) => {
+          setCart(items);
+          setCustomerName(customer);
+        }}
+      />
+
+      {ConfirmDialogEl}
 
       <ReceiptModal
         isOpen={isReceiptModalOpen}
