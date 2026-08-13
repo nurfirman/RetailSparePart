@@ -178,6 +178,8 @@ export function POSModule() {
   const numPaid = Number(amountPaid) || 0;
   const changeAmount = paymentMethod === "CASH" ? Math.max(0, numPaid - finalTotal) : 0;
 
+  const searchInputRef = React.useRef(null);
+
   // Barcode Scanner Simulation
   const simulateBarcodeScan = () => {
     const target = products.find((p) => p.barcode === "899100100201") || products[0];
@@ -188,17 +190,73 @@ export function POSModule() {
     }
   };
 
-  // F4 Keyboard Shortcut for Checkout
+  // Keyboard Shortcuts (F2: Search, F4: Checkout, F8: Hold, Esc: Clear Search)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === "F4") {
+      if (e.key === "F2") {
+        e.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+        }
+      } else if (e.key === "F4") {
         e.preventDefault();
         handleCheckout();
+      } else if (e.key === "F8") {
+        e.preventDefault();
+        handleHoldCart();
+      } else if (e.key === "Escape") {
+        if (searchTerm) {
+          setSearchTerm("");
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cart, paymentMethod, amountPaid, finalTotal]);
+  }, [cart, paymentMethod, amountPaid, finalTotal, searchTerm]);
+
+  // Hardware Barcode Scanner Global Key Listener Buffer
+  useEffect(() => {
+    let barcodeBuffer = "";
+    let lastKeyTime = 0;
+
+    const handleBarcodeKeyPress = (e) => {
+      // Ignore if user is currently typing in an input or textarea element (unless it's barcode scanner fast typing)
+      const targetTag = e.target.tagName;
+      const isInputFocused = targetTag === "INPUT" || targetTag === "TEXTAREA" || targetTag === "SELECT";
+      
+      const currentTime = Date.now();
+      if (currentTime - lastKeyTime > 60) {
+        barcodeBuffer = "";
+      }
+      lastKeyTime = currentTime;
+
+      if (e.key === "Enter") {
+        if (barcodeBuffer.length >= 3) {
+          const scannedCode = barcodeBuffer.trim();
+          const match = products.find(
+            (p) =>
+              (p.barcode && p.barcode.toLowerCase() === scannedCode.toLowerCase()) ||
+              p.sku_number.toLowerCase() === scannedCode.toLowerCase()
+          );
+          if (match) {
+            addToCart(match);
+            if (isInputFocused && searchInputRef.current) {
+              setSearchTerm("");
+            }
+          } else {
+            toast.warning(`Produk dengan barcode/SKU "${scannedCode}" tidak ditemukan.`);
+          }
+          barcodeBuffer = "";
+        }
+      } else if (e.key.length === 1) {
+        barcodeBuffer += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleBarcodeKeyPress);
+    return () => window.removeEventListener("keydown", handleBarcodeKeyPress);
+  }, [products]);
 
   // Hold Cart Action
   const handleHoldCart = async () => {
@@ -219,7 +277,7 @@ export function POSModule() {
     setCustomerName(resumedCustomer || "Pelanggan Umum");
   };
 
-  // Process Checkout
+  // Process Checkout with Atomic Dexie Transaction
   const handleCheckout = async () => {
     if (cart.length === 0) {
       toast.warning("Keranjang belanja masih kosong!");
@@ -241,7 +299,6 @@ export function POSModule() {
     if (!confirmed) return;
 
     const now = new Date();
-    // UUID-based invoice to prevent collision (was 3-digit random)
     const uid = crypto.randomUUID ? crypto.randomUUID().slice(0, 8).toUpperCase() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
     const invoiceNumber = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${uid}`;
 
@@ -267,67 +324,69 @@ export function POSModule() {
         oem_number: item.oem_number,
         quantity: item.quantity,
         unit_price: item.selling_price,
-        subtotal: item.selling_price * item.quantity - item.itemDiscount,
+        subtotal: item.selling_price * item.quantity - (item.itemDiscount || 0),
       })),
     };
 
     try {
-      // 1. Save Transaction to Dexie IndexedDB
-      await db.transactions.add(transactionData);
-      await queueSyncItem("INSERT", "transactions", {
-        id: transactionData.id,
-        invoice_number: transactionData.invoice_number,
-        user_id: transactionData.user_id,
-        total_amount: transactionData.total_amount,
-        discount_amount: transactionData.discount_amount,
-        payment_method: transactionData.payment_method,
-        payment_status: transactionData.payment_status,
-        customer_name: transactionData.customer_name,
-        created_at: transactionData.created_at,
-      });
-
-      // 2. Save line items & Deduct Product Stock
-      for (const item of cart) {
-        const itemId = `titem-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        // Line item sync queue
-        await queueSyncItem("INSERT", "transaction_items", {
-          id: itemId,
-          transaction_id: transactionData.id,
-          product_id: item.id,
-          quantity: item.quantity,
-          unit_price: item.selling_price,
-          subtotal: item.selling_price * item.quantity - (item.itemDiscount || 0),
+      // Execute Atomic Dexie Transaction across all impacted local tables & sync queue
+      await db.transaction("rw", [db.transactions, db.products, db.stock_movements, db.sync_queue], async () => {
+        // 1. Save Transaction to Dexie IndexedDB
+        await db.transactions.add(transactionData);
+        await queueSyncItem("INSERT", "transactions", {
+          id: transactionData.id,
+          invoice_number: transactionData.invoice_number,
+          user_id: transactionData.user_id,
+          total_amount: transactionData.total_amount,
+          discount_amount: transactionData.discount_amount,
+          payment_method: transactionData.payment_method,
+          payment_status: transactionData.payment_status,
+          customer_name: transactionData.customer_name,
+          created_at: transactionData.created_at,
         });
 
-        // Deduct stock in IndexedDB
-        const targetProd = await db.products.get(item.id);
-        if (targetProd) {
-          const newStock = Math.max(0, targetProd.stock_quantity - item.quantity);
-          await db.products.update(item.id, { stock_quantity: newStock });
-          await queueSyncItem("UPDATE", "products", { id: item.id, stock_quantity: newStock });
-
-          // Stock movement log
-          const smData = {
-            id: `sm-${Date.now()}-${Math.random()}`,
+        // 2. Save line items & Deduct Product Stock Atomically
+        for (const item of cart) {
+          const itemId = `titem-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          await queueSyncItem("INSERT", "transaction_items", {
+            id: itemId,
+            transaction_id: transactionData.id,
             product_id: item.id,
-            type: "OUT_POS",
             quantity: item.quantity,
-            reference_number: invoiceNumber,
-            notes: `Penjualan POS Kasir (${customerName})`,
-            user_id: currentUser?.id || "usr-003",
-            created_at: now.toISOString(),
-          };
-          await db.stock_movements.add(smData);
-          await queueSyncItem("INSERT", "stock_movements", smData);
-        }
-      }
+            unit_price: item.selling_price,
+            subtotal: item.selling_price * item.quantity - (item.itemDiscount || 0),
+          });
 
-      // Show receipt modal
+          // Deduct stock in IndexedDB
+          const targetProd = await db.products.get(item.id);
+          if (targetProd) {
+            const newStock = Math.max(0, targetProd.stock_quantity - item.quantity);
+            await db.products.update(item.id, { stock_quantity: newStock });
+            await queueSyncItem("UPDATE", "products", { id: item.id, stock_quantity: newStock });
+
+            // Stock movement log
+            const smData = {
+              id: `sm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              product_id: item.id,
+              type: "OUT_POS",
+              quantity: item.quantity,
+              reference_number: invoiceNumber,
+              notes: `Penjualan POS Kasir (${customerName})`,
+              user_id: currentUser?.id || "usr-003",
+              created_at: now.toISOString(),
+            };
+            await db.stock_movements.add(smData);
+            await queueSyncItem("INSERT", "stock_movements", smData);
+          }
+        }
+      });
+
+      // Show receipt modal upon successful atomic transaction completion
       setCurrentTransaction(transactionData);
       setIsReceiptModalOpen(true);
       clearCart();
     } catch (err) {
-      console.error("Checkout error:", err);
+      console.error("Atomic Checkout Error:", err);
       toast.error(`Gagal memproses transaksi: ${err.message}`);
     }
   };
@@ -342,10 +401,11 @@ export function POSModule() {
             <div style={{ position: "relative", flex: "1 1 220px" }}>
               <Search size={18} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
               <input
+                ref={searchInputRef}
                 type="text"
                 className="input-control"
                 style={{ paddingLeft: "2.3rem" }}
-                placeholder="Cari sparepart (Nama, No. OEM, SKU, atau Kompatibilitas)..."
+                placeholder="Cari sparepart [F2] (Nama, No. OEM, SKU)..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />

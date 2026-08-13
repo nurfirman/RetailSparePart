@@ -30,6 +30,10 @@ export function ProductMaster() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [onlyLowStock, setOnlyLowStock] = useState(false);
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
@@ -48,6 +52,14 @@ export function ProductMaster() {
 
     return matchesSearch && matchesCategory && matchesLowStock;
   });
+
+  // Calculate Paginated Slice
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedProducts = filteredProducts.slice(
+    (safeCurrentPage - 1) * itemsPerPage,
+    safeCurrentPage * itemsPerPage
+  );
 
   // KPIs
   const totalSku = products.length;
@@ -202,7 +214,7 @@ export function ProductMaster() {
                 </td>
               </tr>
             ) : (
-              filteredProducts.map((p) => {
+              paginatedProducts.map((p) => {
                 const catObj = categories.find((c) => c.id === p.category_id);
                 const isOut = p.stock_quantity <= 0;
                 const isLow = p.stock_quantity <= p.min_stock_alert;
@@ -283,8 +295,48 @@ export function ProductMaster() {
             )}
           </tbody>
         </table>
+        </div>
+
+        {/* Pagination Bar */}
+        {filteredProducts.length > 0 && (
+          <div
+            style={{
+              padding: "0.75rem 1rem",
+              borderTop: "1px solid var(--border)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontSize: "0.85rem",
+              color: "var(--text-muted)",
+              background: "rgba(0, 0, 0, 0.01)",
+            }}
+          >
+            <div>
+              Menampilkan {Math.min((safeCurrentPage - 1) * itemsPerPage + 1, filteredProducts.length)} -{" "}
+              {Math.min(safeCurrentPage * itemsPerPage, filteredProducts.length)} dari {filteredProducts.length} sparepart
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <button
+                className="btn btn-outline btn-sm"
+                disabled={safeCurrentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              >
+                &laquo; Prev
+              </button>
+              <span style={{ fontWeight: 600, padding: "0 0.5rem" }}>
+                Halaman {safeCurrentPage} / {totalPages}
+              </span>
+              <button
+                className="btn btn-outline btn-sm"
+                disabled={safeCurrentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next &raquo;
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
 
       {/* Product Modal */}
       <ProductModal
