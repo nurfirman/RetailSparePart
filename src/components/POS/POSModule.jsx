@@ -378,7 +378,7 @@ export function POSModule() {
           </div>
 
           {/* Category Pills */}
-          <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.25rem", webkitOverflowScrolling: "touch" }}>
+          <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.25rem", WebkitOverflowScrolling: "touch" }}>
             <button
               className={`btn btn-sm ${selectedCategory === "all" ? "btn-primary" : "btn-outline"}`}
               onClick={() => setSelectedCategory("all")}

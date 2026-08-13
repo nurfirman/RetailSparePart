@@ -119,7 +119,15 @@ async function ensureRemoteMasterDataSeeded(sql) {
       for (const p of DUMMY_PRODUCTS) {
         await sql`INSERT INTO "products" ("id", "sku_number", "oem_number", "name", "category_id", "vehicle_compatibility", "cost_price", "selling_price", "stock_quantity", "min_stock_alert", "bin_location", "is_consignment", "supplier_id", "barcode") VALUES (${p.id}, ${p.sku_number}, ${p.oem_number}, ${p.name}, ${p.category_id}, ${p.vehicle_compatibility}, ${p.cost_price}, ${p.selling_price}, ${p.stock_quantity}, ${p.min_stock_alert}, ${p.bin_location}, ${p.is_consignment}, ${p.supplier_id}, ${p.barcode}) ON CONFLICT DO NOTHING`;
       }
-      console.log("Master data successfully seeded to Neon Cloud!");
+      for (const t of DUMMY_TRANSACTIONS) {
+        await sql`INSERT INTO "transactions" ("id", "invoice_number", "user_id", "total_amount", "discount_amount", "payment_method", "payment_status", "customer_name", "notes", "created_at") VALUES (${t.id}, ${t.invoice_number}, ${t.user_id}, ${t.total_amount}, ${t.discount_amount}, ${t.payment_method}, ${t.payment_status}, ${t.customer_name}, ${t.notes}, ${t.created_at}) ON CONFLICT DO NOTHING`;
+        if (t.items && t.items.length > 0) {
+          for (const item of t.items) {
+            await sql`INSERT INTO "transaction_items" ("id", "transaction_id", "product_id", "quantity", "unit_price", "subtotal") VALUES (${item.id}, ${t.id}, ${item.product_id}, ${item.quantity}, ${item.unit_price}, ${item.subtotal}) ON CONFLICT DO NOTHING`;
+          }
+        }
+      }
+      console.log("Master data & initial transactions successfully seeded to Neon Cloud!");
     }
   } catch (err) {
     console.warn("Notice: Master data auto-seed check skipped or failed:", err.message);
@@ -184,8 +192,9 @@ export async function syncNow() {
           const cols = keys.map((k) => `"${k}"`).join(", ");
           const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
           
-          const queryStr = `INSERT INTO "${item.table}" (${cols}) VALUES (${placeholders}) ON CONFLICT ("id") DO UPDATE SET ${keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ")}`;
-          await sql(queryStr, [...values, ...values]);
+          const updateClause = keys.map((k, i) => `"${k}" = $${keys.length + i + 1}`).join(", ");
+          const queryStr = `INSERT INTO "${item.table}" (${cols}) VALUES (${placeholders}) ON CONFLICT ("id") DO UPDATE SET ${updateClause}`;
+          await sql.query(queryStr, [...values, ...values]);
         } else if (item.action === "UPDATE") {
           const { id, ...updateData } = payload;
           const keys = Object.keys(updateData);
@@ -194,12 +203,12 @@ export async function syncNow() {
           if (keys.length > 0 && id) {
             const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
             const queryStr = `UPDATE "${item.table}" SET ${setClause} WHERE "id" = $${keys.length + 1}`;
-            await sql(queryStr, [...values, id]);
+            await sql.query(queryStr, [...values, id]);
           }
         } else if (item.action === "DELETE") {
           if (payload.id) {
             const queryStr = `DELETE FROM "${item.table}" WHERE "id" = $1`;
-            await sql(queryStr, [payload.id]);
+            await sql.query(queryStr, [payload.id]);
           }
         }
 

@@ -28,7 +28,7 @@ export function getNeonSql() {
     return null;
   }
   try {
-    return neon(databaseUrl);
+    return neon(databaseUrl, { disableWarningInBrowsers: true });
   } catch (err) {
     console.warn("Failed to initialize Neon SQL Client:", err);
     return null;
