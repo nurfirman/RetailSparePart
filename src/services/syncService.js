@@ -103,6 +103,14 @@ export function isOnlineNetwork() {
  */
 async function ensureRemoteMasterDataSeeded(sql) {
   try {
+    // 1. Always ensure all local users exist in Neon Postgres Cloud to prevent foreign key constraint violations
+    const localUsers = await db.users.toArray();
+    for (const u of localUsers) {
+      await sql`INSERT INTO "users" ("id", "email", "name", "role", "created_at")
+                VALUES (${u.id}, ${u.email}, ${u.name}, ${u.role}, ${u.created_at || new Date().toISOString()})
+                ON CONFLICT ("id") DO UPDATE SET "name" = ${u.name}, "email" = ${u.email}, "role" = ${u.role}`;
+    }
+
     const checkProd = await sql`SELECT COUNT(*) as count FROM "products"`;
     if (Number(checkProd[0]?.count || 0) === 0) {
       console.log("Neon Postgres database is empty. Seeding initial master data to Neon Cloud...");

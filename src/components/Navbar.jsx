@@ -17,7 +17,7 @@ import {
   Clock,
 } from "lucide-react";
 
-export function Navbar({ onOpenLogin }) {
+export function Navbar({ onOpenLogin, onOpenLanding }) {
   const { currentUser, allUsers, switchUser, logout } = useAuth();
   const toast = useToast();
   const [online, setOnline] = useState(navigator.onLine);
@@ -96,7 +96,7 @@ export function Navbar({ onOpenLogin }) {
       position: 'relative',
       zIndex: 100
     }}>
-      {/* Brand Title */}
+      {/* Brand Title & Landing Page Link */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         <div style={{
           width: '38px',
@@ -106,13 +106,17 @@ export function Navbar({ onOpenLogin }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: 'var(--shadow-glow)'
-        }}>
+          boxShadow: 'var(--shadow-glow)',
+          cursor: 'pointer',
+        }}
+        onClick={onOpenLanding}
+        title="Lihat Landing Page AutoPart Pro"
+        >
           <Wrench size={22} color="#ffffff" />
         </div>
         <div>
-          <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-            OtoSparePart <span style={{ color: 'var(--primary)', fontWeight: 500, fontSize: '0.85rem' }}>POS &amp; Inventory</span>
+          <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em', cursor: 'pointer' }} onClick={onOpenLanding}>
+            AutoPart Pro <span style={{ color: 'var(--primary)', fontWeight: 500, fontSize: '0.85rem' }}>POS &amp; Inventory</span>
           </h1>
           <span className="hide-on-tablet" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Auto &amp; Moto Parts Enterprise</span>
         </div>
@@ -127,8 +131,18 @@ export function Navbar({ onOpenLogin }) {
         <span className="hide-on-tablet" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{dateStr}</span>
       </div>
 
-      {/* Right: Network Status, Sync, User */}
+      {/* Right: Landing Page Switcher, Network Status, Sync, User */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        {onOpenLanding && (
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={onOpenLanding}
+            style={{ fontSize: "0.8rem" }}
+          >
+            Landing Page
+          </button>
+        )}
+
         {/* Network & Sync Status Badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           {online ? (
@@ -245,7 +259,7 @@ export function Navbar({ onOpenLogin }) {
             )}
           </div>
         ) : (
-          <button className="btn btn-primary btn-sm" onClick={onOpenLogin}>
+          <button className="btn btn-primary btn-sm" onClick={() => onOpenLogin("login")}>
             <LogIn size={14} /> Masuk
           </button>
         )}
